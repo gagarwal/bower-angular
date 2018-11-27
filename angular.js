@@ -1,5 +1,5 @@
 /**
- * @license AngularJS v1.5.12
+ * @license AngularJS v1.5.13
  * (c) 2010-2016 Google, Inc. http://angularjs.org
  * License: MIT
  */
@@ -57,7 +57,7 @@ function minErr(module, ErrorConstructor) {
       return match;
     });
 
-    message += '\nhttp://errors.angularjs.org/1.5.12/' +
+    message += '\nhttp://errors.angularjs.org/1.5.13/' +
       (module ? module + '/' : '') + code;
 
     for (i = SKIP_INDEXES, paramPrefix = '?'; i < templateArgs.length; i++, paramPrefix = '&') {
@@ -2479,7 +2479,7 @@ function toDebugString(obj) {
  * - `codeName` – `{string}` – Code name of the release, such as "jiggling-armfat".
  */
 var version = {
-  full: '1.5.12',    // all of these placeholder strings will be replaced by grunt's
+  full: '1.5.13',    // all of these placeholder strings will be replaced by grunt's
   major: 1,    // package task
   minor: 5,
   dot: 12,
@@ -15819,6 +15819,9 @@ function $$QPromiseTrackerProvider() {
  *   constructed via `$q.reject`, the promise will be rejected instead.
  * - `reject(reason)` – rejects the derived promise with the `reason`. This is equivalent to
  *   resolving it with a rejection constructed via `$q.reject`.
+ * - `rejectSilently()` – rejects the derived promise. This is equivalent to reject with the 
+ *   exception that it won't invoke the errorCallback registered for the promise. In addition it
+ *   rejects the promise chain syncronously
  * - `notify(value)` - provides updates on the status of the promise's execution. This may be called
  *   multiple times before the promise is either resolved or rejected.
  *
@@ -15961,15 +15964,13 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
     //Necessary to support unbound execution :/
     d.resolve = simpleBind(d, d.resolve);
     d.reject = simpleBind(d, d.reject);
+    d.rejectSilently = simpleBind(d, d.rejectSilently);
     d.notify = simpleBind(d, d.notify);
     return d;
   };
 
   function Promise() {
     this.$$state = { status: 0 };
-
-    // some built-in angular module may use promises when the dependencies are not yet loaded, make sure not to track those
-    promiseTracker.track(this);
   }
 
   extend(Promise.prototype, {
@@ -16016,7 +16017,9 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
       deferred = pending[i][0];
       fn = pending[i][state.status];
       try {
-        if (isFunction(fn)) {
+        if (state.isSilentReject) {
+          deferred.rejectSilently();
+        } else if (isFunction(fn)) {
           deferred.resolve(fn(state.value));
         } else if (state.status === 1) {
           deferred.resolve(state.value);
@@ -16024,7 +16027,11 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
           deferred.reject(state.value);
         }
       } catch (e) {
-        deferred.reject(e);
+        if (state.isSilentReject) {
+          deferred.rejectSilently();
+        } else {
+          deferred.reject(e);
+        }
         exceptionHandler(e);
       }
     }
@@ -16033,11 +16040,16 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
   function scheduleProcessQueue(state) {
     if (state.processScheduled || !state.pending) return;
     state.processScheduled = true;
-    nextTick(function() { processQueue(state); });
+    if (state.isSilentReject) {
+      processQueue(state);
+    } else {
+      nextTick(function() { processQueue(state); });
+    }
   }
 
   function Deferred() {
     this.promise = new Promise();
+    promiseTracker.track(this);
   }
 
   extend(Deferred.prototype, {
@@ -16067,7 +16079,7 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
           this.promise.$$state.value = val;
           this.promise.$$state.status = 1;
 
-          promiseTracker.untrack(this.promise);
+          promiseTracker.untrack(this);
           scheduleProcessQueue(this.promise.$$state);
         }
       } catch (e) {
@@ -16087,6 +16099,12 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
       }
     },
 
+    rejectSilently: function() {
+      if (this.promise.$$state.status) return;
+      this.promise.$$state.isSilentReject = true;
+      this.$$reject();
+    },
+
     reject: function(reason) {
       if (this.promise.$$state.status) return;
       this.$$reject(reason);
@@ -16096,7 +16114,7 @@ function qFactory(nextTick, exceptionHandler, promiseTracker) {
       this.promise.$$state.value = reason;
       this.promise.$$state.status = 2;
 
-      promiseTracker.untrack(this.promise);
+      promiseTracker.untrack(this);
       scheduleProcessQueue(this.promise.$$state);
     },
 
