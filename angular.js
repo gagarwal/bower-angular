@@ -1,5 +1,5 @@
 /**
- * @license AngularJS v1.5.13
+ * @license AngularJS v1.5.14
  * (c) 2010-2016 Google, Inc. http://angularjs.org
  * License: MIT
  */
@@ -57,7 +57,7 @@ function minErr(module, ErrorConstructor) {
       return match;
     });
 
-    message += '\nhttp://errors.angularjs.org/1.5.13/' +
+    message += '\nhttp://errors.angularjs.org/1.5.14/' +
       (module ? module + '/' : '') + code;
 
     for (i = SKIP_INDEXES, paramPrefix = '?'; i < templateArgs.length; i++, paramPrefix = '&') {
@@ -2479,10 +2479,10 @@ function toDebugString(obj) {
  * - `codeName` – `{string}` – Code name of the release, such as "jiggling-armfat".
  */
 var version = {
-  full: '1.5.13',    // all of these placeholder strings will be replaced by grunt's
+  full: '1.5.14',    // all of these placeholder strings will be replaced by grunt's
   major: 1,    // package task
   minor: 5,
-  dot: 12,
+  dot: 14,
   codeName: 'snapshot'
 };
 
@@ -11727,14 +11727,22 @@ function createHttpBackend($browser, createXhr, $browserDefer, callbacks, rawDoc
             statusText);
       };
 
+      var isTimedOut = false;
       var requestError = function() {
         // The response is always empty
         // See https://xhr.spec.whatwg.org/#request-error-steps and https://fetch.spec.whatwg.org/#concept-network-error
-        completeRequest(callback, -1, null, null, '');
+        completeRequest(callback, -1, null, null, 'UnknownError');
+      };
+
+      var requestAbort = function() {
+        // The response is always empty
+        // See https://xhr.spec.whatwg.org/#request-error-steps and https://fetch.spec.whatwg.org/#concept-network-error
+        completeRequest(callback, -1, null, null, isTimedOut ? 'Timeout' : 'UnknownAbort');
+        isTimedOut = false;
       };
 
       xhr.onerror = requestError;
-      xhr.onabort = requestError;
+      xhr.onabort = requestAbort;
 
       forEach(eventHandlers, function(value, key) {
           xhr.addEventListener(key, value);
@@ -11777,7 +11785,10 @@ function createHttpBackend($browser, createXhr, $browserDefer, callbacks, rawDoc
 
     function timeoutRequest() {
       jsonpDone && jsonpDone();
-      xhr && xhr.abort();
+      if (xhr) {
+        isTimedOut = true;
+        xhr.abort();
+      }
     }
 
     function completeRequest(callback, status, response, headersString, statusText) {
